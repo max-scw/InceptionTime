@@ -128,3 +128,5 @@ dmypy.json
 # Pyre type checker
 .pyre/
 /UCRArchive_2018/*
+*.tsv
+/archive/*

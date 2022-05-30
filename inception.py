@@ -1,7 +1,9 @@
-# resnet model
+# Inception time: ensemble of Inception models
 import keras
 from keras.layers import Conv1D, MaxPool1D, Concatenate, Activation, Add, Input, GlobalAveragePooling1D, Dense
 from keras.layers.normalization.batch_normalization import BatchNormalization
+
+from typing import Union
 
 import pandas as pd
 import numpy as np
@@ -31,7 +33,7 @@ class InceptionTime1:
             self.verbose = verbose
             self.model.save_weights(self.output_directory + 'model_init.hdf5')
 
-    def _inception_module(self, input_tensor, stride=1, activation='linear'):
+    def _inception_module(self, input_tensor, stride:int = 1, activation:str = 'linear'):
         # the inception module is a bottleneck operation followed by 3 parallel convolutions and a maximum pooling
         # operation followed by a convolution with kernel size 1
         if self.use_bottleneck and int(input_tensor.shape[-1]) > 1:
@@ -57,22 +59,22 @@ class InceptionTime1:
 
         # create inception module: concatenate all operations that they run in parallel and add batch normalization for
         # better training (vanishing gradient problem)
-        x = Concatenate(axis=2)(conv_list)
-        x = BatchNormalization()(x)
+        inception_block = Concatenate(axis=2)(conv_list)
+        inception_block = BatchNormalization()(inception_block)
         # set activation functions to ReLU
-        x = Activation(activation='relu')(x)
-        return x
+        inception_block = Activation(activation='relu')(inception_block)
+        return inception_block
 
     def _shortcut_layer(self, input_tensor, out_tensor):
         shortcut_y = Conv1D(filters=int(out_tensor.shape[-1]), kernel_size=1,
                                          padding='same', use_bias=False)(input_tensor)
         shortcut_y = BatchNormalization()(shortcut_y)
 
-        x = Add()([shortcut_y, out_tensor])
-        x = Activation('relu')(x)
-        return x
+        block = Add()([shortcut_y, out_tensor])
+        block = Activation('relu')(block)
+        return block
 
-    def build_model(self, input_shape: tuple, n_classes: int) -> keras.models:
+    def build_model(self, input_shape: tuple, n_classes: int) -> keras.Model:
         # define shape of the expected input
         input_layer = Input(input_shape)
 
@@ -108,7 +110,11 @@ class InceptionTime1:
 
         return model
 
-    def fit(self, x_train, y_train, x_val, y_val):
+    def fit(self, 
+            x_train: Union[np.ndarray, pd.Series, pd.DataFrame], 
+            y_train: Union[np.ndarray, pd.Series],
+            x_val: Union[np.ndarray, pd.Series, pd.DataFrame] = None, 
+            y_val: Union[np.ndarray, pd.Series] = None) -> keras.Model:
         # x_val and y_val are only used to monitor the test loss and NOT for training
 
         if self.batch_size is None:
@@ -118,20 +124,23 @@ class InceptionTime1:
         mini_batch_size = None  # FIXME
 
         hist = self.model.fit(x_train, y_train, batch_size=mini_batch_size, epochs=self.n_epochs,
-                              verbose=self.verbose, validation_data=None, callbacks=self.callbacks)
+                              verbose=self.verbose, validation_data=(x_val, y_val), callbacks=self.callbacks)
 
         return self.model
 
-    def predict(self, x_test, y_true, x_train, y_train, y_test):
-        y_pred = self.model.predict(x_test, batch_size=self.batch_size)
-        return y_pred
+    def predict(self, x: Union[np.ndarray, pd.Series, pd.DataFrame]) -> Union[np.ndarray, pd.Series]:
+        y_prd = self.model.predict(x, batch_size=self.batch_size)
+        return y_prd
 
 
 if __name__ == '__main__':
-    yx = np.loadtxt(pl.Path(r'/home/squirrel/Dokumente/Python/InceptionTime/archive/UCRArchive_2018/ChlorineConcentration/ChlorineConcentration_TRAIN.tsv'))    
+    path_to_working_directory = pl.Path.cwd()
+    print(f'current working directory: {path_to_working_directory}')
+    path_to_data = pl.Path(r'archive/UCRArchive_2018/ChlorineConcentration/ChlorineConcentration_TRAIN.tsv')
+    yx = np.loadtxt(path_to_data)
     x = yx[:, 1:]
     y = yx[:, 0] -1
 
-    mdl = InceptionTime1(output_directory=pl.Path.cwd().as_posix(), input_shape=(x.shape[1], 1),
+    mdl = InceptionTime1(output_directory=path_to_working_directory.as_posix(), input_shape=(x.shape[1], 1),
                         n_classes=len(np.unique(y)), verbose=True, use_bottleneck=True, use_residual=False)
-    mdl.fit(x, y, x, y)
+    mdl.fit(x, y)
