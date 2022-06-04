@@ -3,7 +3,7 @@ import keras
 from keras.layers import Conv1D, MaxPool1D, Concatenate, Activation, Add, Input, GlobalAveragePooling1D, Dense
 from keras.layers.normalization.batch_normalization import BatchNormalization
 
-from typing import Union
+from typing import Union, List, Tuple
 
 import pandas as pd
 import numpy as np
@@ -11,8 +11,8 @@ import pathlib as pl
 
 class InceptionTime1:
 
-    def __init__(self, output_directory, input_shape, n_classes, verbose=False, build=True, batch_size=64,
-                 n_filters=32, use_residual=True, use_bottleneck=True, depth=6, kernel_size=41, n_epochs=1500):
+    def __init__(self, output_directory: str, input_shape: Tuple[int], n_classes:int, verbose:bool = False, build:bool = True, batch_size:int = 64,
+                 n_filters:int = 32, use_residual:bool = True, use_bottleneck:bool = True, depth:int = 6, kernel_size:int = 41, n_epochs:int = 1500) -> None:
 
         self.output_directory = output_directory
 
@@ -33,15 +33,17 @@ class InceptionTime1:
             self.verbose = verbose
             self.model.save_weights(self.output_directory + 'model_init.hdf5')
 
-    def _inception_module(self, input_tensor, stride:int = 1, activation:str = 'linear'):
+    def _inception_module(self, input_tensor: keras.dtensor, stride:int = 1, activation:str = 'linear') -> keras.dtensor:
         # the inception module is a bottleneck operation followed by 3 parallel convolutions and a maximum pooling
         # operation followed by a convolution with kernel size 1
-        if self.use_bottleneck and int(input_tensor.shape[-1]) > 1:
-            input_inception = Conv1D(filters=self.bottleneck_size, kernel_size=1,
+        # only apply bottleneck operation if the input is multivariante data!
+        if self.use_bottleneck and int(input_tensor.shape[-1]) > 1: 
+            input_inception = Conv1D(filters=self.bottleneck_size, kernel_size=1, input_shape=input_tensor.shape[1:],
                                      padding='same', activation=activation, use_bias=False)(input_tensor)
         else:
             input_inception = input_tensor
 
+        # create list of kernel sizes of the convolutions (100%, 50%, 25% of the input kernel_size)
         kernel_size_s = [self.kernel_size // (2 ** i) for i in range(3)]
         # create a list of multiple, distinct convolutions on same input (that is the output of input_inception)
         conv_list = []
@@ -51,7 +53,7 @@ class InceptionTime1:
                 input_inception))
         # parallel path: add maximum pooling to same input (that is the output of input_inception)
         max_pool_1 = MaxPool1D(pool_size=3, strides=stride, padding='same')(input_tensor)
-        # convolve the output of max-pooling with kernel size 1
+        # convolve the output of max-pooling with kernel size 1 (this is basically a scaling)
         conv_6 = Conv1D(filters=self.n_filters, kernel_size=1,
                         padding='same', activation=activation, use_bias=False)(max_pool_1)
         # append to list of operations
@@ -74,11 +76,13 @@ class InceptionTime1:
         block = Activation('relu')(block)
         return block
 
-    def build_model(self, input_shape: tuple, n_classes: int) -> keras.Model:
+    def build_model(self, input_shape: Tuple[int], n_classes: int) -> keras.Model:
         # define shape of the expected input
-        input_layer = Input(input_shape)
+        input_layer = Input(shape=input_shape)
 
+        # initialize first layer as the input layer
         x = input_layer
+        # keep ?????????????????????
         input_res = input_layer
         
         # stack inceltion modules / blocks
@@ -116,15 +120,21 @@ class InceptionTime1:
             x_val: Union[np.ndarray, pd.Series, pd.DataFrame] = None, 
             y_val: Union[np.ndarray, pd.Series] = None) -> keras.Model:
         # x_val and y_val are only used to monitor the test loss and NOT for training
+        
+        # TODO: convert label input (y) to categoricals and store for backtransformation => create pipeline?
 
         if self.batch_size is None:
             mini_batch_size = int(min(x_train.shape[0] / 10, 16))
         else:
             mini_batch_size = self.batch_size
-        mini_batch_size = None  # FIXME
+
+        if x_val is not None and y_val is not None :
+            validation_data = (x_val, y_val)
+        else:
+            validation_data = None
 
         hist = self.model.fit(x_train, y_train, batch_size=mini_batch_size, epochs=self.n_epochs,
-                              verbose=self.verbose, validation_data=(x_val, y_val), callbacks=self.callbacks)
+                              verbose=self.verbose, validation_data=validation_data, callbacks=self.callbacks)
 
         return self.model
 
@@ -138,9 +148,24 @@ if __name__ == '__main__':
     print(f'current working directory: {path_to_working_directory}')
     path_to_data = pl.Path(r'archive/UCRArchive_2018/ChlorineConcentration/ChlorineConcentration_TRAIN.tsv')
     yx = np.loadtxt(path_to_data)
-    x = yx[:, 1:]
-    y = yx[:, 0] -1
 
-    mdl = InceptionTime1(output_directory=path_to_working_directory.as_posix(), input_shape=(x.shape[1], 1),
-                        n_classes=len(np.unique(y)), verbose=True, use_bottleneck=True, use_residual=False)
-    mdl.fit(x, y)
+    x_train = yx[:, 1:]
+    y_train = yx[:, 0] - 1
+
+    path_to_data = pl.Path(r'archive/UCRArchive_2018/ChlorineConcentration/ChlorineConcentration_TEST.tsv')
+    yx = np.loadtxt(path_to_data)
+
+    x_test = yx[:, 1:]
+    y_test = yx[:, 0] - 1
+
+    n_observations = x_train.shape[0]
+    x_time_len = x_train.shape[1]
+    x_signal_dim = tuple([1 if x_train.shape[2:] == () else x_train.shape[2:]])
+    input_shape = (x_time_len,) + x_signal_dim
+
+
+    mdl = InceptionTime1(output_directory=path_to_working_directory.as_posix(), input_shape=input_shape,
+                        n_classes=len(np.unique(y_train)), verbose=True, depth=1, use_bottleneck=True, use_residual=False)
+    # shape (observations, time-siwe signal length, signal dimensions): (467, 166) => dimension: (166, 1)
+    mdl.fit(x_train, y_train, x_test, y_test)
+
