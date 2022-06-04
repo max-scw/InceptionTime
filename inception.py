@@ -146,14 +146,16 @@ class InceptionTime1:
 if __name__ == '__main__':
     path_to_working_directory = pl.Path.cwd()
     print(f'current working directory: {path_to_working_directory}')
-    path_to_data = pl.Path(r'archive/UCRArchive_2018/ChlorineConcentration/ChlorineConcentration_TRAIN.tsv')
-    yx = np.loadtxt(path_to_data)
+    path_to_archive = pl.Path(r'archive/UCRArchive_2018/')
+    name_dataset = 'ChlorineConcentration'
+
+    path_to_dataset = path_to_archive.joinpath(name_dataset)
+    yx = np.loadtxt(path_to_dataset.joinpath(name_dataset + '_TRAIN.tsv'))
 
     x_train = yx[:, 1:]
     y_train = yx[:, 0] - 1
 
-    path_to_data = pl.Path(r'archive/UCRArchive_2018/ChlorineConcentration/ChlorineConcentration_TEST.tsv')
-    yx = np.loadtxt(path_to_data)
+    yx = np.loadtxt(path_to_dataset.joinpath(name_dataset + '_TEST.tsv'))
 
     x_test = yx[:, 1:]
     y_test = yx[:, 0] - 1
@@ -165,7 +167,7 @@ if __name__ == '__main__':
 
 
     mdl = InceptionTime1(output_directory=path_to_working_directory.as_posix(), input_shape=input_shape,
-                        n_classes=len(np.unique(y_train)), verbose=True, depth=1, use_bottleneck=True, use_residual=False)
+                        n_classes=len(np.unique(y_train)), verbose=True, depth=6, use_bottleneck=True, use_residual=False)
     # shape (observations, time-siwe signal length, signal dimensions): (467, 166) => dimension: (166, 1)
     mdl.fit(x_train, y_train, x_test, y_test)
 
