@@ -48,8 +48,8 @@ class InceptionTime1:
 
         if build:
             self.model = self.build_model(input_shape, n_classes)
-            if verbose:
-                self.model.summary()
+            #if verbose:
+            #    self.model.summary()
             self.verbose = verbose
             self.model.save_weights(self.output_directory.joinpath(f"{self.model_name}_init.hdf5"))
 
@@ -198,36 +198,19 @@ class InceptionTimeEnsemble:
     """
     This is an ensemble of InceptionTime1 models. In the original paper the classifieres was named "NNE" (= Neural Network Ensemble) but relied on pretrained models loaded from disk. In contrast to this, this class actually traines the models out of the box. 
     """
-    
+    model_name = "InceptionTime1_Nr"
 
-    def create_classifier(self, model_name, input_shape, nb_classes, output_directory, verbose=False,
-                          build=True):
-        if self.check_if_match('inception*', model_name):
-            from classifiers import inception
-            return inception.Classifier_INCEPTION(output_directory, input_shape, nb_classes, verbose,
-                                                  build=build)
-
-    def __init__(self, output_directory: Union[str, pl.Path], input_shape: Tuple[int], n_classes: int, verbose: bool = False, n_ensemble_members: int = 5):
+    def __init__(self, output_directory: Union[str, pl.Path], verbose: bool = False, n_ensemble_members: int = 5, n_epochs: int = 1500):
         
+        # required input parameters
+        self.output_directory = pl.Path(output_directory)
+
+        # optional input parameters
+        self.verbose = verbose
         # ensemble of n InceptionTime1 models
         self.n_ensemble_members = n_ensemble_members
-        self.input_shape = input_shape
-        self.n_classes = n_classes
-        
-        self.classifiers = [clf_name]
-        out_add = ''
-        for cc in self.classifiers:
-            out_add = out_add + cc + '-'
-        self.archive_name = ARCHIVE_NAMES[0]
-        self.iterations_to_take = [i for i in range(n_iterations)]
-        for cc in self.iterations_to_take:
-            out_add = out_add + str(cc) + '-'
-        self.output_directory = output_directory.replace('nne',
-                                                         'nne' + '/' + out_add)
-        create_directory(self.output_directory)
-        self.dataset_name = output_directory.split('/')[-2]
-        self.verbose = verbose
-        self.models_dir = output_directory.replace('nne', 'classifier')
+        self.n_epochs = n_epochs
+       
 
     def fit(self,
             x_train: Union[np.ndarray, pd.Series, pd.DataFrame],
@@ -235,35 +218,45 @@ class InceptionTimeEnsemble:
             x_val: Union[np.ndarray, pd.Series, pd.DataFrame] = None,
             y_val: Union[np.ndarray, pd.Series] = None):
 
+        # determine input shape from input
+        n_observations = x_train.shape[0]
+        x_time_len = x_train.shape[1]
+        x_signal_dim = tuple([1 if x_train.shape[2:] == () else x_train.shape[2:]])
+        input_shape = (x_time_len,) + x_signal_dim
+        # determine number of classes from input
         n_classes = len(pd.unique(y_train))
-        input_shape = None # FIMXE
+
         for i in range(self.n_ensemble_members):
             print(f'Training InceptionTime1 model Nr. {i} ...')
+            model_name = self.model_name + str(i)
             # initialize new instance of a single inception time
             # make sure that it is initialized differently thatn the others
             model = InceptionTime1(output_directory=self.output_directory, 
                                    input_shape=input_shape, 
                                    n_classes=n_classes, 
-                                   verbose=False,
-                                   model_name=f"InceptionTime1_Nr{i}_")
+                                   verbose=self.verbose,
+                                   n_epochs=self.n_epochs,
+                                   model_name=model_name)
             # train / fit model
             model.fit(x_train=x_train, y_train=y_train, x_val=x_val, y_val=y_val)
             # save model
-
+            #keras.models.save_model(model.model, filepath=self.output_directory.joinpath(model_name + ".hdf5"))
+            # already done with the checkpoints of the callback functions in InceptionTime1
             # free model instance
             keras.backend.clear_session()
-            print(f'Done with training InceptionTime (an ensemble of {self.n_ensemble_members} InceptionTime1 models).')
+        print(f'Done with training InceptionTime (an ensemble of {self.n_ensemble_members} InceptionTime1 models). All models saved to {self.output_directory}')
         
         # calculate validation metrices of the ensemble
         if x_val and y_val:
-            self.predict()
+            y_prd = self.predict(x_val)
+            # TODO: calculate metrics
 
     def predict(self, x, detailed_output: bool = False):
 
         y_prds = []
         for i in range(self.n_ensemble_members):
             # load model
-            model = keras.models.load_model()
+            model = keras.models.load_model(self.output_directory.joinpath(f"{self.model_name}_best_model.hdf5"))
             # then compute the predictions
             y_prd_i = model.predict(x)
             keras.backend.clear_session()
@@ -281,7 +274,6 @@ class InceptionTimeEnsemble:
             y_prd = y_prds_cat.apply(lambda x: x.cat.codes, axis=0).mean(axis=1).apply(round)
             # transform back to categorical series
             return pd.Categorical.from_codes(y_prd, categories=y_prds[0].cat.categories)
-
 
 
 if __name__ == "__main__":
@@ -306,8 +298,9 @@ if __name__ == "__main__":
     x_signal_dim = tuple([1 if x_train.shape[2:] == () else x_train.shape[2:]])
     input_shape = (x_time_len,) + x_signal_dim
 
+    """
     mdl = InceptionTime1(
-        output_directory=path_to_working_directory.as_posix(),
+        output_directory=path_to_working_directory,
         input_shape=input_shape,
         n_classes=len(np.unique(y_train)),
         build=True,
@@ -319,3 +312,6 @@ if __name__ == "__main__":
     )
     # shape (observations, time-siwe signal length, signal dimensions): (467, 166) => dimension: (166, 1)
     mdl.fit(x_train, y_train, x_test, y_test)
+    """
+
+    ensemble = InceptionTimeEnsemble(output_directory=path_to_working_directory, n_epochs=1, verbose=True).fit(x_train, y_train, x_test, y_test)
