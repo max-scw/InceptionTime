@@ -194,7 +194,7 @@ class InceptionTime1:
         return y_prd
 
 
-class InceptionTime:
+class InceptionTimeEnsemble:
     """
     This is an ensemble of InceptionTime1 models. In the original paper the classifieres was named "NNE" (= Neural Network Ensemble) but relied on pretrained models loaded from disk. In contrast to this, this class actually traines the models out of the box. 
     """
@@ -244,7 +244,7 @@ class InceptionTime:
             model = InceptionTime1(output_directory=self.output_directory, 
                                    input_shape=input_shape, 
                                    n_classes=n_classes, 
-                                   verbose=False
+                                   verbose=False,
                                    model_name=f"InceptionTime1_Nr{i}_")
             # train / fit model
             model.fit(x_train=x_train, y_train=y_train, x_val=x_val, y_val=y_val)
