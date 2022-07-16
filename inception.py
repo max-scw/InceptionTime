@@ -38,6 +38,7 @@ class InceptionTime1:
         self.batch_size = batch_size
         self.bottleneck_size = 32
         self.n_epochs = n_epochs
+        self.y_categories = None
 
         if build:
             self.model = self.build_model(input_shape, n_classes)
@@ -97,11 +98,12 @@ class InceptionTime1:
         return inception_block
 
     def _shortcut_layer(self, input_tensor, out_tensor):
-        shortcut_y = Conv1D(filters=int(out_tensor.shape[-1]), kernel_size=1, padding="same", use_bias=False)(
-            input_tensor
-        )
+        # 1D convolution followed by batch normalization in parallel to "normal" input-output
+        n_filters = int(out_tensor.shape[-1])
+        shortcut_y = Conv1D(filters=n_filters, kernel_size=1, padding="same", use_bias=False)(input_tensor)
         shortcut_y = BatchNormalization()(shortcut_y)
 
+        # put shortcut in parallel to the "normal" layer
         block = Add()([shortcut_y, out_tensor])
         block = Activation("relu")(block)
         return block
@@ -133,10 +135,10 @@ class InceptionTime1:
 
         # construct / set callbacks
         reduce_lr = keras.callbacks.ReduceLROnPlateau(monitor="loss", factor=0.5, patience=50, min_lr=0.0001)
-
+        # add checkpoints
         file_path = self.output_directory + "best_model.hdf5"
-
         model_checkpoint = keras.callbacks.ModelCheckpoint(filepath=file_path, monitor="loss", save_best_only=True)
+        # set callbacks
         self.callbacks = [reduce_lr, model_checkpoint]
 
         return model
@@ -150,7 +152,13 @@ class InceptionTime1:
     ) -> keras.Model:
         # x_val and y_val are only used to monitor the test loss and NOT for training
 
-        # TODO: convert label input (y) to categoricals and store for backtransformation => create pipeline?
+        # convert label input (y) to categoricals and store for backtransformation
+        y_train = pd.Categorical(y_train)
+        self.y_categories = y_train.categories
+        # extract category codes because keras only handles increasing integers as classes starting at 0
+        y_train = y_train.codes
+        y_val = pd.Categorical(y_val, categories=self.y_categories).codes
+        
 
         if self.batch_size is None:
             mini_batch_size = int(min(x_train.shape[0] / 10, 16))
@@ -175,7 +183,9 @@ class InceptionTime1:
         return self.model
 
     def predict(self, x: Union[np.ndarray, pd.Series, pd.DataFrame]) -> Union[np.ndarray, pd.Series]:
-        y_prd = self.model.predict(x, batch_size=self.batch_size)
+        y_prd_codes = self.model.predict(x, batch_size=self.batch_size)
+        # transform back to categorical series
+        y_prd = pd.Categorical.from_codes(y_prd_codes, categories=self.y_categories)
         return y_prd
 
 
