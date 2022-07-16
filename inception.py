@@ -13,7 +13,7 @@ import pathlib as pl
 class InceptionTime1:
     def __init__(
         self,
-        output_directory: str,
+        output_directory: Union[str, pl.Path],  # TODO:make optional
         input_shape: Tuple[int],
         n_classes: int,
         verbose: bool = False,
@@ -26,9 +26,9 @@ class InceptionTime1:
         kernel_size: int = 41,
         n_epochs: int = 1500,
     ) -> None:
-        # set local variables
+        # set required input parameters
         self.output_directory = output_directory
-
+        # set optional input parameters
         self.n_filters = n_filters
         self.use_residual = use_residual
         self.use_bottleneck = use_bottleneck
@@ -158,7 +158,6 @@ class InceptionTime1:
         # extract category codes because keras only handles increasing integers as classes starting at 0
         y_train = y_train.codes
         y_val = pd.Categorical(y_val, categories=self.y_categories).codes
-        
 
         if self.batch_size is None:
             mini_batch_size = int(min(x_train.shape[0] / 10, 16))
@@ -187,6 +186,85 @@ class InceptionTime1:
         # transform back to categorical series
         y_prd = pd.Categorical.from_codes(y_prd_codes, categories=self.y_categories)
         return y_prd
+
+
+class InceptionTime:
+    
+
+    def create_classifier(self, model_name, input_shape, nb_classes, output_directory, verbose=False,
+                          build=True):
+        if self.check_if_match('inception*', model_name):
+            from classifiers import inception
+            return inception.Classifier_INCEPTION(output_directory, input_shape, nb_classes, verbose,
+                                                  build=build)
+
+    def __init__(self, output_directory: Union[str, pl.Path], verbose: bool = False, n_ensemble_members: int = 5):
+        
+        # ensemble of n InceptionTime1 models
+        self.n_ensemble_members = n_ensemble_members
+        
+        self.classifiers = [clf_name]
+        out_add = ''
+        for cc in self.classifiers:
+            out_add = out_add + cc + '-'
+        self.archive_name = ARCHIVE_NAMES[0]
+        self.iterations_to_take = [i for i in range(n_iterations)]
+        for cc in self.iterations_to_take:
+            out_add = out_add + str(cc) + '-'
+        self.output_directory = output_directory.replace('nne',
+                                                         'nne' + '/' + out_add)
+        create_directory(self.output_directory)
+        self.dataset_name = output_directory.split('/')[-2]
+        self.verbose = verbose
+        self.models_dir = output_directory.replace('nne', 'classifier')
+
+    def fit(self,
+            x_train: Union[np.ndarray, pd.Series, pd.DataFrame],
+            y_train: Union[np.ndarray, pd.Series],
+            x_val: Union[np.ndarray, pd.Series, pd.DataFrame] = None,
+            y_val: Union[np.ndarray, pd.Series] = None):
+
+        for i in range(self.n_ensemble_members):
+            print(f'Training InceptionTime1 model Nr. {i} ...')
+            # initialize new instance of a single inception time
+            # make sure that it is initialized differently thatn the others
+            model = InceptionTime1(verbose=False)
+            # train / fit model
+            model.fit(x_train=x_train, y_train=y_train, x_val=x_val, y_val=y_val)
+            # save model
+
+            # free model instance
+            keras.backend.clear_session()
+            print(f'Done with training InceptionTime (an ensemble of {self.n_ensemble_members} InceptionTime1 models).')
+        
+        # calculate validation metrices of the ensemble
+        if x_val and y_val:
+            self.predict()
+
+    def predict(self, x, detailed_output: bool = False):
+
+        y_prds = []
+        for i in range(self.n_ensemble_members):
+            # load model
+
+            # then compute the predictions
+            y_prd_i = model.predict(x)
+            keras.backend.clear_session()
+
+            y_prds.append(y_prd_i)
+        # create dataframe from stacked series
+        y_prds = pd.DataFrame(y_prds)
+        
+        if detailed_output:
+            return y_prds
+        else:
+            # get category codes
+            y_prds_cat = y_prds.apply(lambda x: x.cat.codes, axis=0)
+            # average predictions and round to integers (category codes)
+            y_prd = y_prds_cat.apply(lambda x: x.cat.codes, axis=0).mean(axis=1).apply(round)
+            # transform back to categorical series
+            return pd.Categorical.from_codes(y_prd, categories=y_prds[0].cat.categories)
+
 
 
 if __name__ == "__main__":
