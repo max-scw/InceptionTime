@@ -130,3 +130,4 @@ dmypy.json
 /UCRArchive_2018/*
 *.tsv
 /archive/*
+*.hdf5

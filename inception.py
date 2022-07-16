@@ -1,4 +1,5 @@
 # Inception time: ensemble of Inception models
+from types import new_class
 import keras
 from keras.layers import Conv1D, MaxPool1D, Concatenate, Activation, Add, Input, GlobalAveragePooling1D, Dense
 from keras.layers.normalization.batch_normalization import BatchNormalization
@@ -25,9 +26,10 @@ class InceptionTime1:
         depth: int = 6,
         kernel_size: int = 41,
         n_epochs: int = 1500,
+        model_name: str = None,
     ) -> None:
         # set required input parameters
-        self.output_directory = output_directory
+        self.output_directory = pl.Path(output_directory)
         # set optional input parameters
         self.n_filters = n_filters
         self.use_residual = use_residual
@@ -39,13 +41,17 @@ class InceptionTime1:
         self.bottleneck_size = 32
         self.n_epochs = n_epochs
         self.y_categories = None
+        if isinstance(model_name, str) and not model_name == "":
+            self.model_name = model_name
+        else:
+            self.model_name = "InceptionTime1"
 
         if build:
             self.model = self.build_model(input_shape, n_classes)
             if verbose:
                 self.model.summary()
             self.verbose = verbose
-            self.model.save_weights(self.output_directory + "model_init.hdf5")
+            self.model.save_weights(self.output_directory.joinpath(f"{self.model_name}_init.hdf5"))
 
     def _inception_module(
         self, input_tensor: keras.dtensor, stride: int = 1, activation: str = "linear"
@@ -136,7 +142,7 @@ class InceptionTime1:
         # construct / set callbacks
         reduce_lr = keras.callbacks.ReduceLROnPlateau(monitor="loss", factor=0.5, patience=50, min_lr=0.0001)
         # add checkpoints
-        file_path = self.output_directory + "best_model.hdf5"
+        file_path = self.output_directory.joinpath(f"{self.model_name}_best_model.hdf5")
         model_checkpoint = keras.callbacks.ModelCheckpoint(filepath=file_path, monitor="loss", save_best_only=True)
         # set callbacks
         self.callbacks = [reduce_lr, model_checkpoint]
@@ -189,6 +195,9 @@ class InceptionTime1:
 
 
 class InceptionTime:
+    """
+    This is an ensemble of InceptionTime1 models. In the original paper the classifieres was named "NNE" (= Neural Network Ensemble) but relied on pretrained models loaded from disk. In contrast to this, this class actually traines the models out of the box. 
+    """
     
 
     def create_classifier(self, model_name, input_shape, nb_classes, output_directory, verbose=False,
@@ -198,10 +207,12 @@ class InceptionTime:
             return inception.Classifier_INCEPTION(output_directory, input_shape, nb_classes, verbose,
                                                   build=build)
 
-    def __init__(self, output_directory: Union[str, pl.Path], verbose: bool = False, n_ensemble_members: int = 5):
+    def __init__(self, output_directory: Union[str, pl.Path], input_shape: Tuple[int], n_classes: int, verbose: bool = False, n_ensemble_members: int = 5):
         
         # ensemble of n InceptionTime1 models
         self.n_ensemble_members = n_ensemble_members
+        self.input_shape = input_shape
+        self.n_classes = n_classes
         
         self.classifiers = [clf_name]
         out_add = ''
@@ -224,11 +235,17 @@ class InceptionTime:
             x_val: Union[np.ndarray, pd.Series, pd.DataFrame] = None,
             y_val: Union[np.ndarray, pd.Series] = None):
 
+        n_classes = len(pd.unique(y_train))
+        input_shape = None # FIMXE
         for i in range(self.n_ensemble_members):
             print(f'Training InceptionTime1 model Nr. {i} ...')
             # initialize new instance of a single inception time
             # make sure that it is initialized differently thatn the others
-            model = InceptionTime1(verbose=False)
+            model = InceptionTime1(output_directory=self.output_directory, 
+                                   input_shape=input_shape, 
+                                   n_classes=n_classes, 
+                                   verbose=False
+                                   model_name=f"InceptionTime1_Nr{i}_")
             # train / fit model
             model.fit(x_train=x_train, y_train=y_train, x_val=x_val, y_val=y_val)
             # save model
@@ -246,7 +263,7 @@ class InceptionTime:
         y_prds = []
         for i in range(self.n_ensemble_members):
             # load model
-
+            model = keras.models.load_model()
             # then compute the predictions
             y_prd_i = model.predict(x)
             keras.backend.clear_session()
@@ -293,6 +310,7 @@ if __name__ == "__main__":
         output_directory=path_to_working_directory.as_posix(),
         input_shape=input_shape,
         n_classes=len(np.unique(y_train)),
+        build=True,
         verbose=True,
         depth=6,
         use_bottleneck=True,
