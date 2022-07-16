@@ -26,7 +26,7 @@ class InceptionTime1:
         kernel_size: int = 41,
         n_epochs: int = 1500,
     ) -> None:
-
+        # set local variables
         self.output_directory = output_directory
 
         self.n_filters = n_filters
@@ -132,14 +132,12 @@ class InceptionTime1:
         model.compile(loss="sparse_categorical_crossentropy", optimizer=keras.optimizers.Adam(), metrics=["accuracy"])
 
         # construct / set callbacks
-        # reduce_lr = keras.callbacks.ReduceLROnPlateau(monitor='loss', factor=0.5, patience=50,
-        #                                              min_lr=0.0001)
-        #
-        # file_path = self.output_directory + 'best_model.hdf5'
-        #
-        # model_checkpoint = keras.callbacks.ModelCheckpoint(filepath=file_path, monitor='loss',
-        #                                                   save_best_only=True)
-        self.callbacks = None  # [reduce_lr, model_checkpoint]
+        reduce_lr = keras.callbacks.ReduceLROnPlateau(monitor="loss", factor=0.5, patience=50, min_lr=0.0001)
+
+        file_path = self.output_directory + "best_model.hdf5"
+
+        model_checkpoint = keras.callbacks.ModelCheckpoint(filepath=file_path, monitor="loss", save_best_only=True)
+        self.callbacks = [reduce_lr, model_checkpoint]
 
         return model
 
@@ -211,7 +209,7 @@ if __name__ == "__main__":
         depth=6,
         use_bottleneck=True,
         use_residual=True,
-        n_epochs=1  #FIMXE: for testing only
+        n_epochs=1,  # FIMXE: for testing only
     )
     # shape (observations, time-siwe signal length, signal dimensions): (467, 166) => dimension: (166, 1)
     mdl.fit(x_train, y_train, x_test, y_test)
