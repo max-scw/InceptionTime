@@ -48,7 +48,7 @@ class InceptionTime1:
 
         if build:
             self.model = self.build_model(input_shape, n_classes)
-            #if verbose:
+            # if verbose:
             #    self.model.summary()
             self.verbose = verbose
             self.model.save_weights(self.output_directory.joinpath(f"{self.model_name}_init.hdf5"))
@@ -196,12 +196,19 @@ class InceptionTime1:
 
 class InceptionTimeEnsemble:
     """
-    This is an ensemble of InceptionTime1 models. In the original paper the classifieres was named "NNE" (= Neural Network Ensemble) but relied on pretrained models loaded from disk. In contrast to this, this class actually traines the models out of the box. 
+    This is an ensemble of InceptionTime1 models. In the original paper the classifieres was named "NNE" (= Neural Network Ensemble) but relied on pretrained models loaded from disk. In contrast to this, this class actually traines the models out of the box.
     """
+
     model_name = "InceptionTime1_Nr"
 
-    def __init__(self, output_directory: Union[str, pl.Path], verbose: bool = False, n_ensemble_members: int = 5, n_epochs: int = 1500):
-        
+    def __init__(
+        self,
+        output_directory: Union[str, pl.Path],
+        verbose: bool = False,
+        n_ensemble_members: int = 5,
+        n_epochs: int = 1500,
+    ):
+
         # required input parameters
         self.output_directory = pl.Path(output_directory)
 
@@ -210,13 +217,14 @@ class InceptionTimeEnsemble:
         # ensemble of n InceptionTime1 models
         self.n_ensemble_members = n_ensemble_members
         self.n_epochs = n_epochs
-       
 
-    def fit(self,
-            x_train: Union[np.ndarray, pd.Series, pd.DataFrame],
-            y_train: Union[np.ndarray, pd.Series],
-            x_val: Union[np.ndarray, pd.Series, pd.DataFrame] = None,
-            y_val: Union[np.ndarray, pd.Series] = None):
+    def fit(
+        self,
+        x_train: Union[np.ndarray, pd.Series, pd.DataFrame],
+        y_train: Union[np.ndarray, pd.Series],
+        x_val: Union[np.ndarray, pd.Series, pd.DataFrame] = None,
+        y_val: Union[np.ndarray, pd.Series] = None,
+    ):
 
         # determine input shape from input
         n_observations = x_train.shape[0]
@@ -227,25 +235,29 @@ class InceptionTimeEnsemble:
         n_classes = len(pd.unique(y_train))
 
         for i in range(self.n_ensemble_members):
-            print(f'Training InceptionTime1 model Nr. {i} ...')
+            print(f"Training InceptionTime1 model Nr. {i} ...")
             model_name = self.model_name + str(i)
             # initialize new instance of a single inception time
             # make sure that it is initialized differently thatn the others
-            model = InceptionTime1(output_directory=self.output_directory, 
-                                   input_shape=input_shape, 
-                                   n_classes=n_classes, 
-                                   verbose=self.verbose,
-                                   n_epochs=self.n_epochs,
-                                   model_name=model_name)
+            model = InceptionTime1(
+                output_directory=self.output_directory,
+                input_shape=input_shape,
+                n_classes=n_classes,
+                verbose=self.verbose,
+                n_epochs=self.n_epochs,
+                model_name=model_name,
+            )
             # train / fit model
             model.fit(x_train=x_train, y_train=y_train, x_val=x_val, y_val=y_val)
             # save model
-            #keras.models.save_model(model.model, filepath=self.output_directory.joinpath(model_name + ".hdf5"))
+            # keras.models.save_model(model.model, filepath=self.output_directory.joinpath(model_name + ".hdf5"))
             # already done with the checkpoints of the callback functions in InceptionTime1
             # free model instance
             keras.backend.clear_session()
-        print(f'Done with training InceptionTime (an ensemble of {self.n_ensemble_members} InceptionTime1 models). All models saved to {self.output_directory}')
-        
+        print(
+            f"Done with training InceptionTime (an ensemble of {self.n_ensemble_members} InceptionTime1 models). All models saved to {self.output_directory}"
+        )
+
         # calculate validation metrices of the ensemble
         if x_val and y_val:
             y_prd = self.predict(x_val)
@@ -264,7 +276,7 @@ class InceptionTimeEnsemble:
             y_prds.append(y_prd_i)
         # create dataframe from stacked series
         y_prds = pd.DataFrame(y_prds)
-        
+
         if detailed_output:
             return y_prds
         else:
@@ -314,4 +326,6 @@ if __name__ == "__main__":
     mdl.fit(x_train, y_train, x_test, y_test)
     """
 
-    ensemble = InceptionTimeEnsemble(output_directory=path_to_working_directory, n_epochs=1, verbose=True).fit(x_train, y_train, x_test, y_test)
+    ensemble = InceptionTimeEnsemble(output_directory=path_to_working_directory, n_epochs=1, verbose=True).fit(
+        x_train, y_train, x_test, y_test
+    )
