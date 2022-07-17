@@ -4,6 +4,8 @@ import keras
 from keras.layers import Conv1D, MaxPool1D, Concatenate, Activation, Add, Input, GlobalAveragePooling1D, Dense
 from keras.layers.normalization.batch_normalization import BatchNormalization
 
+import h5py
+
 from typing import Union, List, Tuple
 
 import pandas as pd
@@ -12,6 +14,11 @@ import pathlib as pl
 
 
 class InceptionTime1:
+    _suffix_label_categories = '_label_categories.h5'
+    _suffix_initial_weights = '_init.h5'
+    _suffix_best_model  = '_best_model.h5'
+    _h5_key_label_categories = 'label_categories'
+
     def __init__(
         self,
         output_directory: Union[str, pl.Path],  # TODO:make optional
@@ -51,7 +58,8 @@ class InceptionTime1:
             # if verbose:
             #    self.model.summary()
             self.verbose = verbose
-            self.model.save_weights(self.output_directory.joinpath(f"{self.model_name}_init.hdf5"))
+            file_name = self.model_name + self._suffix_initial_weights
+            self.model.save_weights(self.output_directory.joinpath(file_name))
 
     def _inception_module(
         self, input_tensor: keras.dtensor, stride: int = 1, activation: str = "linear"
@@ -142,12 +150,20 @@ class InceptionTime1:
         # construct / set callbacks
         reduce_lr = keras.callbacks.ReduceLROnPlateau(monitor="loss", factor=0.5, patience=50, min_lr=0.0001)
         # add checkpoints
-        file_path = self.output_directory.joinpath(f"{self.model_name}_best_model.hdf5")
+        file_name = self.model_name + self._suffix_best_model
+        file_path = self.output_directory.joinpath(file_name)
         model_checkpoint = keras.callbacks.ModelCheckpoint(filepath=file_path, monitor="loss", save_best_only=True)
         # set callbacks
         self.callbacks = [reduce_lr, model_checkpoint]
 
         return model
+
+    def load_model(self, path_to_model: Union[str, pl.Path]) -> bool:
+        # load model
+        self.model = keras.models.load_model(path_to_model)
+        # load label categories
+        with h5py.File(path_to_model, 'r') as fl:
+            self.y_categories = pd.Categorical(fl[self._h5_key_label_categories])
 
     def fit(
         self,
@@ -185,10 +201,18 @@ class InceptionTime1:
             callbacks=self.callbacks,
         )
 
+        # add label categories to outptu file
+        file_name = self.model_name + self._suffix_best_model
+        #self.y_categories.to_hdf(file_name, mode='a')
+        with h5py.File(file_name, 'a') as fl:
+            fl.create_dataset(self._h5_key_label_categories, data = self.y_categories)
+
         return self.model
 
     def predict(self, x: Union[np.ndarray, pd.Series, pd.DataFrame]) -> Union[np.ndarray, pd.Series]:
-        y_prd_codes = self.model.predict(x, batch_size=self.batch_size)
+        if self.y_categories is None:
+            raise ValueError('No label categories found. Perhaps the model was not trained yet?')
+        y_prd_codes = self.model.predict(x, batch_size=self.batch_size).argmax(axis=1)
         # transform back to categorical series
         y_prd = pd.Categorical.from_codes(y_prd_codes, categories=self.y_categories)
         return y_prd
@@ -252,6 +276,7 @@ class InceptionTimeEnsemble:
             # save model
             # keras.models.save_model(model.model, filepath=self.output_directory.joinpath(model_name + ".hdf5"))
             # already done with the checkpoints of the callback functions in InceptionTime1
+
             # free model instance
             keras.backend.clear_session()
         print(
@@ -268,10 +293,11 @@ class InceptionTimeEnsemble:
         y_prds = []
         for i in range(self.n_ensemble_members):
             # load model
-            model = keras.models.load_model(self.output_directory.joinpath(f"{self.model_name}_best_model.hdf5"))
+            file_name = self.model_name + self._suffix_best_model
+            model = keras.models.load_model(self.output_directory.joinpath(file_name))
             # then compute the predictions
             y_prd_i = model.predict(x)
-            keras.backend.clear_session()
+            #keras.backend.clear_session()
 
             y_prds.append(y_prd_i)
         # create dataframe from stacked series
@@ -281,7 +307,8 @@ class InceptionTimeEnsemble:
             return y_prds
         else:
             # get category codes
-            y_prds_cat = y_prds.apply(lambda x: x.cat.codes, axis=0)
+            # the model returns probabilities for all classies => extract the index with the highest probability
+            y_prds_cat = y_prds.apply(lambda x: x.cat.codes, axis=0).argmax(axis=1)
             # average predictions and round to integers (category codes)
             y_prd = y_prds_cat.apply(lambda x: x.cat.codes, axis=0).mean(axis=1).apply(round)
             # transform back to categorical series
@@ -298,24 +325,24 @@ if __name__ == "__main__":
     yx = np.loadtxt(path_to_dataset.joinpath(name_dataset + "_TRAIN.tsv"))
 
     x_train = yx[:, 1:]
-    y_train = yx[:, 0] - 1
+    y_train = yx[:, 0] - 10
 
     yx = np.loadtxt(path_to_dataset.joinpath(name_dataset + "_TEST.tsv"))
 
     x_test = yx[:, 1:]
-    y_test = yx[:, 0] - 1
-
+    y_test = yx[:, 0] - 10
+    
     n_observations = x_train.shape[0]
     x_time_len = x_train.shape[1]
     x_signal_dim = tuple([1 if x_train.shape[2:] == () else x_train.shape[2:]])
     input_shape = (x_time_len,) + x_signal_dim
 
-    """
+    
     mdl = InceptionTime1(
         output_directory=path_to_working_directory,
         input_shape=input_shape,
         n_classes=len(np.unique(y_train)),
-        build=True,
+        build=False,
         verbose=True,
         depth=6,
         use_bottleneck=True,
@@ -323,9 +350,12 @@ if __name__ == "__main__":
         n_epochs=1,  # FIMXE: for testing only
     )
     # shape (observations, time-siwe signal length, signal dimensions): (467, 166) => dimension: (166, 1)
-    mdl.fit(x_train, y_train, x_test, y_test)
-    """
+    #mdl.fit(x_train, y_train, x_test, y_test)
+    mdl.load_model(path_to_working_directory.joinpath('InceptionTime1_best_model.hdf5'))
+    mdl.predict(x_test)
 
-    ensemble = InceptionTimeEnsemble(output_directory=path_to_working_directory, n_epochs=1, verbose=True).fit(
-        x_train, y_train, x_test, y_test
-    )
+    #ensemble = InceptionTimeEnsemble(output_directory=path_to_working_directory, n_epochs=1, verbose=True)
+    #ensemble.fit(x_train, y_train, x_test, y_test)
+
+    #ensemble.predict(x_test)
+
