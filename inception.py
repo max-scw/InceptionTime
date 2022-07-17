@@ -199,14 +199,13 @@ class InceptionTimeEnsemble:
     This is an ensemble of InceptionTime1 models. In the original paper the classifieres was named "NNE" (= Neural Network Ensemble) but relied on pretrained models loaded from disk. In contrast to this, this class actually traines the models out of the box.
     """
 
-    model_name = "InceptionTime1_Nr"
-
     def __init__(
         self,
         output_directory: Union[str, pl.Path],
         verbose: bool = False,
         n_ensemble_members: int = 5,
         n_epochs: int = 1500,
+        model_name_prefix: str = ''
     ):
 
         # required input parameters
@@ -217,6 +216,7 @@ class InceptionTimeEnsemble:
         # ensemble of n InceptionTime1 models
         self.n_ensemble_members = n_ensemble_members
         self.n_epochs = n_epochs
+        self.model_name = '_'.join(filter(None, [model_name_prefix, "InceptionTime1", "Nr"]))
 
     def fit(
         self,
