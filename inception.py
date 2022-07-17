@@ -201,11 +201,10 @@ class InceptionTime1:
             callbacks=self.callbacks,
         )
 
-        # add label categories to outptu file
+        # add label categories to output file
         file_name = self.model_name + self._suffix_best_model
-        #self.y_categories.to_hdf(file_name, mode='a')
         with h5py.File(file_name, 'a') as fl:
-            fl.create_dataset(self._h5_key_label_categories, data = self.y_categories)
+            fl.create_dataset(self._h5_key_label_categories, data=self.y_categories)
 
         return self.model
 
@@ -274,7 +273,7 @@ class InceptionTimeEnsemble:
             # train / fit model
             model.fit(x_train=x_train, y_train=y_train, x_val=x_val, y_val=y_val)
             # save model
-            # keras.models.save_model(model.model, filepath=self.output_directory.joinpath(model_name + ".hdf5"))
+            # keras.models.save_model(model.model, filepath=self.output_directory.joinpath(model_name + ".h5"))
             # already done with the checkpoints of the callback functions in InceptionTime1
 
             # free model instance
@@ -284,35 +283,41 @@ class InceptionTimeEnsemble:
         )
 
         # calculate validation metrices of the ensemble
-        if x_val and y_val:
+        if x_val is not None and y_val is not None:
             y_prd = self.predict(x_val)
             # TODO: calculate metrics
 
     def predict(self, x, detailed_output: bool = False):
 
-        y_prds = []
+        # dummy model to access internal variables
+        mdl_dummy = InceptionTime1('',-1, -1, build=False)
+
+        # loop through models for individual predictions
+        y_prds = {}
         for i in range(self.n_ensemble_members):
             # load model
-            file_name = self.model_name + self._suffix_best_model
+            file_name = self.model_name + str(i) + mdl_dummy._suffix_best_model 
             model = keras.models.load_model(self.output_directory.joinpath(file_name))
             # then compute the predictions
-            y_prd_i = model.predict(x)
+            y_prd_i = model.predict(x).argmax(axis=1)
             #keras.backend.clear_session()
-
-            y_prds.append(y_prd_i)
+            y_prds[file_name] = y_prd_i
         # create dataframe from stacked series
         y_prds = pd.DataFrame(y_prds)
 
+        # load label categories
+        with h5py.File(file_name, 'r') as fl:
+            y_categories = pd.Categorical(fl[mdl_dummy._h5_key_label_categories])
+
         if detailed_output:
-            return y_prds
+            # todo transform back
+            return y_prds.apply(lambda x: pd.Categorical.from_codes(x, categories=y_categories))
         else:
-            # get category codes
-            # the model returns probabilities for all classies => extract the index with the highest probability
-            y_prds_cat = y_prds.apply(lambda x: x.cat.codes, axis=0).argmax(axis=1)
-            # average predictions and round to integers (category codes)
-            y_prd = y_prds_cat.apply(lambda x: x.cat.codes, axis=0).mean(axis=1).apply(round)
+            # average category codes
+            y_prd = y_prds.mean(axis=1).apply(round)
             # transform back to categorical series
-            return pd.Categorical.from_codes(y_prd, categories=y_prds[0].cat.categories)
+            # TODO: load categories
+            return pd.Categorical.from_codes(y_prd, categories=y_categories)
 
 
 if __name__ == "__main__":
@@ -331,7 +336,7 @@ if __name__ == "__main__":
 
     x_test = yx[:, 1:]
     y_test = yx[:, 0] - 10
-    
+    """
     n_observations = x_train.shape[0]
     x_time_len = x_train.shape[1]
     x_signal_dim = tuple([1 if x_train.shape[2:] == () else x_train.shape[2:]])
@@ -351,11 +356,11 @@ if __name__ == "__main__":
     )
     # shape (observations, time-siwe signal length, signal dimensions): (467, 166) => dimension: (166, 1)
     #mdl.fit(x_train, y_train, x_test, y_test)
-    mdl.load_model(path_to_working_directory.joinpath('InceptionTime1_best_model.hdf5'))
+    mdl.load_model(path_to_working_directory.joinpath('InceptionTime1_best_model.h5'))
     mdl.predict(x_test)
-
-    #ensemble = InceptionTimeEnsemble(output_directory=path_to_working_directory, n_epochs=1, verbose=True)
+    """
+    ensemble = InceptionTimeEnsemble(output_directory=path_to_working_directory, n_epochs=1, verbose=True, n_ensemble_members=3)
     #ensemble.fit(x_train, y_train, x_test, y_test)
 
-    #ensemble.predict(x_test)
+    ensemble.predict(x_test)
 
