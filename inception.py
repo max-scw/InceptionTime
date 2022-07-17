@@ -1,7 +1,16 @@
 # Inception time: ensemble of Inception models
 from types import new_class
 import keras
-from keras.layers import Conv1D, MaxPool1D, Concatenate, Activation, Add, Input, GlobalAveragePooling1D, Dense
+from keras.layers import (
+    Conv1D,
+    MaxPool1D,
+    Concatenate,
+    Activation,
+    Add,
+    Input,
+    GlobalAveragePooling1D,
+    Dense,
+)
 from keras.layers.normalization.batch_normalization import BatchNormalization
 
 import h5py
@@ -14,10 +23,10 @@ import pathlib as pl
 
 
 class InceptionTime1:
-    _suffix_label_categories = '_label_categories.h5'
-    _suffix_initial_weights = '_init.h5'
-    _suffix_best_model  = '_best_model.h5'
-    _h5_key_label_categories = 'label_categories'
+    _suffix_label_categories = "_label_categories.h5"
+    _suffix_initial_weights = "_init.h5"
+    _suffix_best_model = "_best_model.h5"
+    _h5_key_label_categories = "label_categories"
 
     def __init__(
         self,
@@ -95,11 +104,17 @@ class InceptionTime1:
                 )(input_inception)
             )
         # parallel path: add maximum pooling to same input (that is the output of input_inception)
-        max_pool_1 = MaxPool1D(pool_size=3, strides=stride, padding="same")(input_tensor)
-        # convolve the output of max-pooling with kernel size 1 (this is basically a scaling)
-        conv_6 = Conv1D(filters=self.n_filters, kernel_size=1, padding="same", activation=activation, use_bias=False)(
-            max_pool_1
+        max_pool_1 = MaxPool1D(pool_size=3, strides=stride, padding="same")(
+            input_tensor
         )
+        # convolve the output of max-pooling with kernel size 1 (this is basically a scaling)
+        conv_6 = Conv1D(
+            filters=self.n_filters,
+            kernel_size=1,
+            padding="same",
+            activation=activation,
+            use_bias=False,
+        )(max_pool_1)
         # append to list of operations
         conv_list.append(conv_6)
 
@@ -114,7 +129,9 @@ class InceptionTime1:
     def _shortcut_layer(self, input_tensor, out_tensor):
         # 1D convolution followed by batch normalization in parallel to "normal" input-output
         n_filters = int(out_tensor.shape[-1])
-        shortcut_y = Conv1D(filters=n_filters, kernel_size=1, padding="same", use_bias=False)(input_tensor)
+        shortcut_y = Conv1D(
+            filters=n_filters, kernel_size=1, padding="same", use_bias=False
+        )(input_tensor)
         shortcut_y = BatchNormalization()(shortcut_y)
 
         # put shortcut in parallel to the "normal" layer
@@ -145,14 +162,22 @@ class InceptionTime1:
         # stack all layers together to a model
         model = keras.models.Model(inputs=input_layer, outputs=output_layer)
         # compile setting loss function and optimizer
-        model.compile(loss="sparse_categorical_crossentropy", optimizer=keras.optimizers.Adam(), metrics=["accuracy"])
+        model.compile(
+            loss="sparse_categorical_crossentropy",
+            optimizer=keras.optimizers.Adam(),
+            metrics=["accuracy"],
+        )
 
         # construct / set callbacks
-        reduce_lr = keras.callbacks.ReduceLROnPlateau(monitor="loss", factor=0.5, patience=50, min_lr=0.0001)
+        reduce_lr = keras.callbacks.ReduceLROnPlateau(
+            monitor="loss", factor=0.5, patience=50, min_lr=0.0001
+        )
         # add checkpoints
         file_name = self.model_name + self._suffix_best_model
         file_path = self.output_directory.joinpath(file_name)
-        model_checkpoint = keras.callbacks.ModelCheckpoint(filepath=file_path, monitor="loss", save_best_only=True)
+        model_checkpoint = keras.callbacks.ModelCheckpoint(
+            filepath=file_path, monitor="loss", save_best_only=True
+        )
         # set callbacks
         self.callbacks = [reduce_lr, model_checkpoint]
 
@@ -162,7 +187,7 @@ class InceptionTime1:
         # load model
         self.model = keras.models.load_model(path_to_model)
         # load label categories
-        with h5py.File(path_to_model, 'r') as fl:
+        with h5py.File(path_to_model, "r") as fl:
             self.y_categories = pd.Categorical(fl[self._h5_key_label_categories])
 
     def fit(
@@ -203,14 +228,18 @@ class InceptionTime1:
 
         # add label categories to output file
         file_name = self.model_name + self._suffix_best_model
-        with h5py.File(file_name, 'a') as fl:
+        with h5py.File(file_name, "a") as fl:
             fl.create_dataset(self._h5_key_label_categories, data=self.y_categories)
 
         return self.model
 
-    def predict(self, x: Union[np.ndarray, pd.Series, pd.DataFrame]) -> Union[np.ndarray, pd.Series]:
+    def predict(
+        self, x: Union[np.ndarray, pd.Series, pd.DataFrame]
+    ) -> Union[np.ndarray, pd.Series]:
         if self.y_categories is None:
-            raise ValueError('No label categories found. Perhaps the model was not trained yet?')
+            raise ValueError(
+                "No label categories found. Perhaps the model was not trained yet?"
+            )
         y_prd_codes = self.model.predict(x, batch_size=self.batch_size).argmax(axis=1)
         # transform back to categorical series
         y_prd = pd.Categorical.from_codes(y_prd_codes, categories=self.y_categories)
@@ -228,7 +257,7 @@ class InceptionTimeEnsemble:
         verbose: bool = False,
         n_ensemble_members: int = 5,
         n_epochs: int = 1500,
-        model_name_prefix: str = ''
+        model_name_prefix: str = "",
     ):
 
         # required input parameters
@@ -239,7 +268,9 @@ class InceptionTimeEnsemble:
         # ensemble of n InceptionTime1 models
         self.n_ensemble_members = n_ensemble_members
         self.n_epochs = n_epochs
-        self.model_name = '_'.join(filter(None, [model_name_prefix, "InceptionTime1", "Nr"]))
+        self.model_name = "_".join(
+            filter(None, [model_name_prefix, "InceptionTime1", "Nr"])
+        )
 
     def fit(
         self,
@@ -290,28 +321,30 @@ class InceptionTimeEnsemble:
     def predict(self, x, detailed_output: bool = False):
 
         # dummy model to access internal variables
-        mdl_dummy = InceptionTime1('',-1, -1, build=False)
+        mdl_dummy = InceptionTime1("", -1, -1, build=False)
 
         # loop through models for individual predictions
         y_prds = {}
         for i in range(self.n_ensemble_members):
             # load model
-            file_name = self.model_name + str(i) + mdl_dummy._suffix_best_model 
+            file_name = self.model_name + str(i) + mdl_dummy._suffix_best_model
             model = keras.models.load_model(self.output_directory.joinpath(file_name))
             # then compute the predictions
             y_prd_i = model.predict(x).argmax(axis=1)
-            #keras.backend.clear_session()
+            # keras.backend.clear_session()
             y_prds[file_name] = y_prd_i
         # create dataframe from stacked series
         y_prds = pd.DataFrame(y_prds)
 
         # load label categories
-        with h5py.File(file_name, 'r') as fl:
+        with h5py.File(file_name, "r") as fl:
             y_categories = pd.Categorical(fl[mdl_dummy._h5_key_label_categories])
 
         if detailed_output:
             # todo transform back
-            return y_prds.apply(lambda x: pd.Categorical.from_codes(x, categories=y_categories))
+            return y_prds.apply(
+                lambda x: pd.Categorical.from_codes(x, categories=y_categories)
+            )
         else:
             # average category codes
             y_prd = y_prds.mean(axis=1).apply(round)
@@ -359,8 +392,12 @@ if __name__ == "__main__":
     mdl.load_model(path_to_working_directory.joinpath('InceptionTime1_best_model.h5'))
     mdl.predict(x_test)
     """
-    ensemble = InceptionTimeEnsemble(output_directory=path_to_working_directory, n_epochs=1, verbose=True, n_ensemble_members=3)
-    #ensemble.fit(x_train, y_train, x_test, y_test)
+    ensemble = InceptionTimeEnsemble(
+        output_directory=path_to_working_directory,
+        n_epochs=1,
+        verbose=True,
+        n_ensemble_members=3,
+    )
+    # ensemble.fit(x_train, y_train, x_test, y_test)
 
     ensemble.predict(x_test)
-
